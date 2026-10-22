@@ -1,0 +1,5 @@
+# Evidence from scripts/re-static.sh and friends — it describes someone
+# else's app; keep it out of version control.
+re-out/
+
+.DS_Store

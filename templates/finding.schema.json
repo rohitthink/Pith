@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Pith review finding",
+  "description": "A finding from a Phase 6 (Verification) adversarial review of the clean-room rebuild, or an array of findings (one reviewer's output). A reviewer for one dimension fills id to fix. A separate verifier for the same dimension, who must try to reproduce the finding, fills verifier. Findings are ranked by severity, fixed, then re-checked on the real-file harness.",
+  "oneOf": [
+    { "$ref": "#/$defs/finding" },
+    {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    }
+  ],
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["id", "severity", "file", "line", "title", "scenario", "fix"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "description": "Unique within the review, e.g. round, dimension and number.",
+          "examples": ["R2-concurrency-03"]
+        },
+        "round": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Which review round produced this finding."
+        },
+        "dimension": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The review dimension the reviewer was assigned.",
+          "examples": ["correctness", "concurrency", "file-safety", "privacy", "ui", "automation", "licences", "packaging"]
+        },
+        "severity": {
+          "enum": ["high", "medium", "low"],
+          "description": "high: data loss, wrong output that looks right, a hang or crash, a privacy leak, or a broken must-have requirement. medium: wrong or degraded behaviour with a workaround, or in an uncommon path. low: polish, clarity or minor inefficiency."
+        },
+        "file": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Repository-relative path in the rebuild."
+        },
+        "line": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "1-based line the finding anchors to, or null when it isn't tied to one line."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "The defect in one short line."
+        },
+        "scenario": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Concrete inputs and state that lead to the wrong output, hang or crash, precise enough for the verifier to reproduce."
+        },
+        "fix": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The proposed fix."
+        },
+        "reviewer": {
+          "type": "string",
+          "description": "Which agent or session reported it."
+        },
+        "verifier": { "$ref": "#/$defs/verification" },
+        "status": {
+          "enum": ["open", "fixed", "wont-fix", "duplicate", "not-a-bug"],
+          "description": "Where the finding stands. A fixed finding needs a confirmed or plausible verifier verdict and a recheck. A refuted finding is usually closed as not-a-bug."
+        },
+        "recheck": { "$ref": "#/$defs/recheck" }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "additionalProperties": false,
+      "if": {
+        "properties": { "status": { "const": "fixed" } },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["verifier", "recheck"],
+        "properties": {
+          "verifier": {
+            "type": "object",
+            "properties": {
+              "verdict": { "enum": ["confirmed", "plausible"] }
+            }
+          },
+          "recheck": true
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": ["verdict", "evidence"],
+      "properties": {
+        "verdict": {
+          "enum": ["confirmed", "plausible", "refuted"],
+          "description": "confirmed: the verifier reproduced it. plausible: not reproduced, but the reasoning holds against the code. refuted: shown not to happen, or not to be a defect."
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "description": "What the verifier did and saw: the test or command run and its output, or the code path that rules the finding out."
+        },
+        "reproducedWith": {
+          "type": "string",
+          "description": "The test, harness run or command used to reproduce it."
+        },
+        "verifiedBy": {
+          "type": "string",
+          "description": "Which agent or session verified it. Not the reviewer who reported it."
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "additionalProperties": false
+    },
+    "recheck": {
+      "type": "object",
+      "required": ["result", "evidence"],
+      "properties": {
+        "result": {
+          "enum": ["pass", "fail"],
+          "description": "Whether the fix held when re-checked."
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How the fix was re-checked, e.g. the self-tests and the end-to-end harness on real files, run several times."
+        }
+      },
+      "patternProperties": {
+        "^x-": {}
+      },
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    [
+      {
+        "id": "R1-concurrency-01",
+        "round": 1,
+        "dimension": "concurrency",
+        "severity": "high",
+        "file": "Sources/ExampleKit/ProcessRunner.swift",
+        "line": 42,
+        "title": "waitUntilExit() can hang when called off the launching thread",
+        "scenario": "Start a conversion from a background queue. The child process exits, but Process.waitUntilExit() never returns, so the job stays 'running'. It shows only under some timings, so run the harness several times.",
+        "fix": "Wait on terminationHandler (for example, resume a continuation from it) instead of calling waitUntilExit().",
+        "reviewer": "concurrency reviewer, round 1",
+        "verifier": {
+          "verdict": "confirmed",
+          "evidence": "Reproduced by repeating the end-to-end harness with jobs started off the main thread; not reproduced after the fix.",
+          "reproducedWith": "end-to-end harness, repeated runs",
+          "verifiedBy": "concurrency verifier, round 1"
+        },
+        "status": "fixed",
+        "recheck": {
+          "result": "pass",
+          "evidence": "Self-tests and the end-to-end harness on real files pass across repeated runs."
+        }
+      },
+      {
+        "id": "R1-file-safety-04",
+        "round": 1,
+        "dimension": "file-safety",
+        "severity": "medium",
+        "file": "Sources/ExampleKit/JobQueue.swift",
+        "line": null,
+        "title": "Temporary files may be left behind when a job is cancelled",
+        "scenario": "Cancel a video conversion halfway through; its partial output stays in the temporary folder.",
+        "fix": "Delete the temporary output in the cancel path.",
+        "verifier": {
+          "verdict": "refuted",
+          "evidence": "Cancelled jobs at several points and listed the temporary folder after each; nothing remained. The cleanup already runs on every exit path."
+        },
+        "status": "not-a-bug"
+      }
+    ]
+  ]
+}
